@@ -4,8 +4,10 @@ const logger = require("../utils/logger");
 const createPost = async (req, res) => {
   try {
     const { content, mediaIds } = req.body;
+    const userId = req.userId;
+   
     const newlyCreatedPost = new Post({
-      user: req.user.userId,
+      user: userId,
       content,
       mediaIds: mediaIds || [],
     });
