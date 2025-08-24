@@ -1,5 +1,6 @@
 const Post = require("../models/post");
 const logger = require("../utils/logger");
+const { publishEvent } = require("../utils/rabbitMQ");
 const { validateCreatePost } = require("../utils/validation");
 
 async function invalidatePostCache(req, input) {
@@ -14,14 +15,14 @@ async function invalidatePostCache(req, input) {
 
 const createPost = async (req, res) => {
   try {
-    // const { error } = validateCreatePost(req.body);
+    const { error } = validateCreatePost(req.body);
 
-    // if (error) {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: error.details,
-    //   });
-    // }
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.details,
+      });
+    }
 
     const { content, mediaIds } = req.body;
     const userId = req.userId;
@@ -127,9 +128,14 @@ const getPost = async (req, res) => {
 
 const deletePost = async (req, res) => {
   try {
+
+    const userId = req.userId;
+
+    console.log(`user id : ************** ${userId}`);
+
     const post = await Post.findOneAndDelete({
       _id: req.params.id,
-      user: req.user.userId,
+      user: userId,
     });
 
     if (!post) {
@@ -139,18 +145,18 @@ const deletePost = async (req, res) => {
       });
     }
 
-    // //publish post delete method ->
-    // await publishEvent("post.deleted", {
-    //   postId: post._id.toString(),
-    //   userId: req.user.userId,
-    //   mediaIds: post.mediaIds,
-    // });
+    //publish post delete method ->
+    await publishEvent("post.deleted", {
+      postId: post._id.toString(),
+      userId: userId,
+      mediaIds: post.mediaIds,
+    });
 
     await invalidatePostCache(req, req.params.id);
     res.json({
       message: "Post deleted successfully",
     });
-  } catch (e) {
+  } catch (error) {
     logger.error("Error deleting post", error);
     res.status(500).json({
       success: false,

@@ -73,7 +73,9 @@ const uploadMedia = async (req, res) => {
 
 const getAllMedias = async (req, res) => {
   try {
-    const userId = req.user?.userId;
+    const userId = req.userId;
+
+    console.log(`*********** user id : ${userId}`)
 
     if (!userId) {
       logger.error("❌ No userId found in request");
@@ -83,15 +85,15 @@ const getAllMedias = async (req, res) => {
       });
     }
 
-    // ✅ Check if user exists
-    const existingUser = await User.findById(userId);
-    if (!existingUser) {
-      logger.warn(`⚠️ User not found: ${userId}`);
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
+    // // ✅ Check if user exists
+    // const existingUser = await User.findById(userId);
+    // if (!existingUser) {
+    //   logger.warn(`⚠️ User not found: ${userId}`);
+    //   return res.status(404).json({
+    //     success: false,
+    //     message: "User not found",
+    //   });
+    // }
 
     const result = await Media.find({ userId });
 
