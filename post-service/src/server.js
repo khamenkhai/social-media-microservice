@@ -7,7 +7,7 @@ const helmet = require("helmet");
 const postRoutes = require("./routes/post-routes");
 const errorHandler = require("./middleware/errorHandler");
 const logger = require("./utils/logger");
-const { connectToRabbitMQ } = require("./utils/rabbitmq");
+const { connectToRabbitMQ } = require("./utils/rabbitMQ");
 
 const app = express();
 const PORT = process.env.PORT || 3002;

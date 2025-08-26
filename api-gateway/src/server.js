@@ -17,12 +17,14 @@ const PORT = process.env.PORT || 3000;
 // Redis client
 const redisClient = new Redis(process.env.REDIS_URL);
 
-// Security middlewares
+//
+// ---------- Middlewares ----------
+//
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
 
-// Rate limiter
+// Rate limiter (Redis-backed)
 app.use(
   rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
@@ -39,83 +41,96 @@ app.use(
   })
 );
 
-// Logging middleware
+// Request logging
 app.use((req, res, next) => {
   logger.info(`${req.method} ${req.url}`);
-
   if (req.body && Object.keys(req.body).length > 0) {
     logger.info(`Body: ${JSON.stringify(req.body)}`);
   }
-
   next();
 });
 
-// Proxy helper
-const createProxy = (serviceUrl, options = {}) =>
+//
+// ---------- Proxy Helpers ----------
+//
+const createProxy = (serviceUrl, extraOptions = {}) =>
   proxy(serviceUrl, {
     proxyReqPathResolver: (req) => req.originalUrl.replace(/^\/v1/, "/api"),
     proxyErrorHandler: (err, res) => {
       logger.error(`Proxy error: ${err.message}`);
-      res.status(500).json({ message: "Internal server error", error: err.message });
+      res.status(500).json({
+        message: "Internal server error",
+        error: err.message,
+      });
     },
-    ...options,
+    ...extraOptions,
   });
 
-// Identity Service
+const jsonHeadersDecorator = (proxyReqOpts) => {
+  proxyReqOpts.headers["Content-Type"] = "application/json";
+  return proxyReqOpts;
+};
+
+const userHeaderDecorator = (proxyReqOpts, srcReq) => {
+  proxyReqOpts.headers["x-user-id"] = srcReq.user.userId;
+  if (!srcReq.headers["content-type"]?.startsWith("multipart/form-data")) {
+    proxyReqOpts.headers["Content-Type"] = "application/json";
+  }
+  return proxyReqOpts;
+};
+
+const logServiceResponse = (serviceName) => (proxyRes, proxyResData) => {
+  logger.info(`[${serviceName}] Status: ${proxyRes.statusCode}`);
+  return proxyResData;
+};
+
+//
+// ---------- Routes ----------
+//
 app.use(
   "/v1/auth",
   createProxy(process.env.IDENTITY_SERVICE_URL, {
-    proxyReqOptDecorator: (proxyReqOpts) => {
-      proxyReqOpts.headers["Content-Type"] = "application/json";
-      return proxyReqOpts;
-    },
-    userResDecorator: (proxyRes, proxyResData) => {
-      logger.info(`[Identity Service] Status: ${proxyRes.statusCode}`);
-      return proxyResData;
-    },
+    proxyReqOptDecorator: jsonHeadersDecorator,
+    userResDecorator: logServiceResponse("Identity Service"),
   })
 );
 
-// Post Service
 app.use(
   "/v1/posts",
   validateToken,
   createProxy(process.env.POST_SERVICE_URL, {
-    proxyReqOptDecorator: (proxyReqOpts, srcReq) => {
-      proxyReqOpts.headers["Content-Type"] = "application/json";
-      proxyReqOpts.headers["x-user-id"] = srcReq.user.userId;
-      return proxyReqOpts;
-    },
-    userResDecorator: (proxyRes, proxyResData) => {
-      logger.info(`[Post Service] Status: ${proxyRes.statusCode}`);
-      return proxyResData;
-    },
+    proxyReqOptDecorator: (proxyReqOpts, srcReq) =>
+      jsonHeadersDecorator(userHeaderDecorator(proxyReqOpts, srcReq)),
+    userResDecorator: logServiceResponse("Post Service"),
   })
 );
 
-// Media Service
 app.use(
   "/v1/media",
   validateToken,
   createProxy(process.env.MEDIA_SERVICE_URL, {
-    proxyReqOptDecorator: (proxyReqOpts, srcReq) => {
-      proxyReqOpts.headers["x-user-id"] = srcReq.user.userId;
-      if (!srcReq.headers["content-type"]?.startsWith("multipart/form-data")) {
-        proxyReqOpts.headers["Content-Type"] = "application/json";
-      }
-      return proxyReqOpts;
-    },
-    userResDecorator: (proxyRes, proxyResData) => {
-      logger.info(`[Media Service] Status: ${proxyRes.statusCode}`);
-      return proxyResData;
-    },
+    proxyReqOptDecorator: userHeaderDecorator,
+    userResDecorator: logServiceResponse("Media Service"),
   })
 );
 
-// Error handler
+app.use(
+  "/v1/search",
+  validateToken,
+  createProxy(process.env.SEARCH_SERVICE_URL, {
+    proxyReqOptDecorator: userHeaderDecorator,
+    userResDecorator: logServiceResponse("Search Service"),
+  })
+);
+
+//
+// ---------- Error handler ----------
+//
 app.use(errorHandler);
 
-// Start server
+//
+// ---------- Start server ----------
+//
 app.listen(PORT, () => {
   logger.info(`🚀 API Gateway running on port ${PORT}`);
   logger.info(`🔑 Identity Service: ${process.env.IDENTITY_SERVICE_URL}`);
